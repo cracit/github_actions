@@ -1,0 +1,90 @@
+name: CI/CD Production Pipelines
+env:
+  AWS_REGION: us-east-1
+  BUILD_MODE: production
+
+on: workflow_dispatch
+
+jobs:
+  build:
+    name: continuous-integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+            node-version: '16.x'
+            cache: npm
+
+      - name: Install dependes
+        run: npm ci
+
+      - name: Run build task
+        run: npm run build -- --mode ${{ env.BUILD_MODE }}
+
+      - name: Testing build
+        run: |
+         FILE=./build/index.js
+         if [ -f "$FILE" ]; then
+            echo "$FILE exists."
+         else
+            echo "Error: Build fail"
+            throw "Error: Build fail"
+         fi
+
+
+  deploy:
+    name: continuous-deployment
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app-name: ['name']
+        s3-bucket: ['name']
+        s3-filename: ['codedeploy-${{ github.sha }}']
+        deploy-group: ['name']
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup node
+        uses: actions/setup-node@v3
+        with:
+            node-version: '16.x'
+            cache: npm
+
+      - name: Install dependes
+        run: npm ci
+
+      - name: Run build task
+        run: npm run build -- --mode ${{ env.BUILD_MODE }}
+
+      # Configure AWS credentials
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Deploy push to S3
+      - name: AWS Deploy push
+        run: |
+          aws deploy push \
+          --application-name ${{ matrix.app-name }} \
+          --description "Revision of the ${{ matrix.app-name }}-${{ github.sha }}" \
+          --ignore-hidden-files \
+          --s3-location s3://${{ matrix.s3-bucket }}/${{ matrix.s3-filename }}.zip \
+          --source ./
+      # Creating deployment via CodeDeploy
+      - name: Creating AWS Deployment
+        run: |
+          aws deploy create-deployment \
+          --application-name ${{ matrix.app-name }} \
+          --deployment-config-name CodeDeployDefault.AllAtOnce \
+          --deployment-group-name ${{ matrix.deploy-group }} \
+          --file-exists-behavior OVERWRITE \
+          --s3-location bucket=${{ matrix.s3-bucket }},key=${{ matrix.s3-filename }}.zip,bundleType=zip \

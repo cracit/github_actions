@@ -1,0 +1,8 @@
+#!/bin/bash
+if (ps aux | grep app | grep -v grep > /dev/null)
+then
+   echo RUNNING
+else
+   echo "Error: App not started Build fail"
+   throw "Error: App not started Build fail"
+fi
